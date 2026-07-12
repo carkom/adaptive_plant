@@ -56,10 +56,12 @@
           "enable_latin_name": "Add a latin name field",
           "enable_image": "Show a plant image",
           "enable_repotting": "Track repotting",
-          "moisture_sensor": "Moisture sensor (optional)"
+          "moisture_sensor": "Moisture sensor (optional)",
+          "enable_environment_context": "Enable environment context"
         },
         "data_description": {
-          "moisture_sensor": "Select an existing sensor to drive automatic watering logic."
+          "moisture_sensor": "Select an existing sensor to drive automatic watering logic.",
+          "enable_environment_context": "Ask for light, window, pot, soil and drainage details used to calculate the recommended watering interval."
         }
       },
       "last_watered": {
@@ -138,6 +140,20 @@
         "data": {
           "dry_threshold": "Dry threshold (reschedule watering to today)",
           "wet_threshold": "Wet threshold (auto-mark as watered)"
+        }
+      },
+      "environment": {
+        "title": "Environment context",
+        "description": "Set the light, pot, soil and drainage context used to calculate the recommended watering interval.",
+        "data": {
+          "baseline_watering_interval_days": "Baseline watering interval",
+          "window_orientation": "Window orientation",
+          "distance_to_window_m": "Distance to window",
+          "light_position": "Light position",
+          "pot_material": "Pot material",
+          "pot_diameter_cm": "Pot diameter",
+          "soil_retention": "Soil retention",
+          "drainage_quality": "Drainage quality"
         }
       }
     },

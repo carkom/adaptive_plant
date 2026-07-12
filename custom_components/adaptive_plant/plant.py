@@ -19,6 +19,7 @@ from .const import (
     CONF_DRY_THRESHOLD,
     CONF_EARLY_WATERING_THRESHOLD,
     CONF_ENABLE_CARE_INSTRUCTIONS,
+    CONF_ENABLE_ENVIRONMENT_CONTEXT,
     CONF_ENABLE_FERTILIZATION,
     CONF_ENABLE_IMAGE,
     CONF_ENABLE_LATIN_NAME,
@@ -43,10 +44,23 @@ from .const import (
     DEFAULT_SNOOZE_THRESHOLD,
     DEFAULT_WATERING_INTERVAL,
     HEALTH_OPTIONS,
+    LIGHT_POSITION_OPTIONS,
     NOTIFICATION_ID_PREFIX,
+    OPT_BASELINE_WATERING_INTERVAL,
+    OPT_DISTANCE_TO_WINDOW_M,
+    OPT_DRAINAGE_QUALITY,
     OPT_FERTILIZATION_INTERVAL,
     OPT_FERT_SYNC_WINDOW,
+    OPT_LIGHT_POSITION,
+    OPT_POT_DIAMETER_CM,
+    OPT_POT_MATERIAL,
+    OPT_SOIL_RETENTION,
     OPT_WATERING_INTERVAL,
+    OPT_WINDOW_ORIENTATION,
+    POT_MATERIAL_OPTIONS,
+    SOIL_RETENTION_OPTIONS,
+    DRAINAGE_QUALITY_OPTIONS,
+    WINDOW_ORIENTATION_OPTIONS,
     STATE_EARLY_WATERING_COUNT,
     STATE_HEALTH,
     STATE_HEALTH_LAST_UPDATED,
@@ -163,6 +177,10 @@ class PlantData:
         return bool(self._entry.data.get(CONF_ENABLE_REPOTTING, False))
 
     @property
+    def enable_environment_context(self) -> bool:
+        return self._entry.data.get(CONF_ENABLE_ENVIRONMENT_CONTEXT) is True
+
+    @property
     def latin_name(self) -> str | None:
         # Check options first using key presence — an empty string in options
         # means the user intentionally cleared it, so don't fall back to entry.data.
@@ -272,6 +290,47 @@ class PlantData:
             return _clean(self._entry.options[CONF_LABEL])
         return _clean(self._entry.data.get(CONF_LABEL))
 
+    # ── Environmental watering metadata ─────────────────────────────────────────
+
+    def _environment_value(self, key: str, default):
+        return self._entry.options.get(key, self._entry.data.get(key, default))
+
+    def _environment_choice(self, key: str, options: list[str], default: str) -> str:
+        value = self._environment_value(key, default)
+        return value if value in options else default
+
+    @property
+    def baseline_watering_interval(self) -> int:
+        return int(self._environment_value(OPT_BASELINE_WATERING_INTERVAL, self.watering_interval))
+
+    @property
+    def window_orientation(self) -> str:
+        return self._environment_choice(OPT_WINDOW_ORIENTATION, WINDOW_ORIENTATION_OPTIONS, "unknown")
+
+    @property
+    def distance_to_window_m(self) -> float:
+        return float(self._environment_value(OPT_DISTANCE_TO_WINDOW_M, 2.0))
+
+    @property
+    def light_position(self) -> str:
+        return self._environment_choice(OPT_LIGHT_POSITION, LIGHT_POSITION_OPTIONS, "unknown")
+
+    @property
+    def pot_material(self) -> str:
+        return self._environment_choice(OPT_POT_MATERIAL, POT_MATERIAL_OPTIONS, "unknown")
+
+    @property
+    def pot_diameter_cm(self) -> float:
+        return float(self._environment_value(OPT_POT_DIAMETER_CM, 15.0))
+
+    @property
+    def soil_retention(self) -> str:
+        return self._environment_choice(OPT_SOIL_RETENTION, SOIL_RETENTION_OPTIONS, "standard")
+
+    @property
+    def drainage_quality(self) -> str:
+        return self._environment_choice(OPT_DRAINAGE_QUALITY, DRAINAGE_QUALITY_OPTIONS, "good")
+
     # ── Runtime state ────────────────────────────────────────────────────────────
 
     @property
@@ -358,6 +417,94 @@ class PlantData:
         except ValueError:
             return True
 
+    @property
+    def recommendation_factors(self) -> dict[str, float]:
+        month = date.today().month
+
+        season_factor = (
+            0.8 if month in (5, 6, 7, 8)
+            else 0.95 if month in (4, 9)
+            else 1.1 if month in (3, 10)
+            else 1.3 if month in (2, 11)
+            else 1.6
+        )
+
+        light_factor = {
+            "direct_sun": 0.75,
+            "bright_indirect": 0.9,
+            "medium": 1.1,
+            "low": 1.35,
+            "unknown": 1.0,
+        }.get(self.light_position, 1.0)
+
+        orientation_factor = {
+            "south": 0.9,
+            "west": 0.9,
+            "east": 0.95,
+            "north": 1.1,
+            "mixed": 1.0,
+            "internal": 1.25,
+            "unknown": 1.0,
+        }.get(self.window_orientation, 1.0)
+
+        distance = self.distance_to_window_m
+        distance_factor = (
+            0.85 if distance < 0.5
+            else 0.95 if distance < 1.5
+            else 1.1 if distance < 3.0
+            else 1.25
+        )
+
+        pot_material_factor = {
+            "terracotta": 0.8,
+            "plastic": 1.0,
+            "glazed_ceramic": 1.1,
+            "metal": 1.05,
+            "unknown": 1.0,
+        }.get(self.pot_material, 1.0)
+
+        diameter = self.pot_diameter_cm
+        pot_size_factor = (
+            0.75 if diameter < 10
+            else 0.9 if diameter < 15
+            else 1.0 if diameter < 25
+            else 1.15 if diameter < 35
+            else 1.3
+        )
+
+        soil_factor = {
+            "fast_draining": 0.85,
+            "standard": 1.0,
+            "moisture_retaining": 1.15,
+            "dense": 1.25,
+            "unknown": 1.0,
+        }.get(self.soil_retention, 1.0)
+
+        drainage_factor = {
+            "good": 1.0,
+            "limited": 1.15,
+            "none": 1.4,
+            "unknown": 1.0,
+        }.get(self.drainage_quality, 1.0)
+
+        return {
+            "season": season_factor,
+            "light": light_factor,
+            "orientation": orientation_factor,
+            "distance": distance_factor,
+            "pot_material": pot_material_factor,
+            "pot_size": pot_size_factor,
+            "soil": soil_factor,
+            "drainage": drainage_factor,
+        }
+
+    @property
+    def recommended_watering_interval_days(self) -> int:
+        raw = float(self.baseline_watering_interval)
+        for factor in self.recommendation_factors.values():
+            raw *= factor
+        return max(2, min(90, round(raw)))
+
     # ── Listeners ────────────────────────────────────────────────────────────────
 
     def add_listener(self, callback: Callable[[], None]) -> None:
@@ -382,6 +529,37 @@ class PlantData:
             return
         self._hass.config_entries.async_update_entry(self._entry, options=merged)
         self._notify_listeners()
+
+    # ── Environmental scheduling metadata setters ───────────────────────────────
+
+    async def set_baseline_watering_interval(self, days: int) -> None:
+        await self._persist({OPT_BASELINE_WATERING_INTERVAL: int(days)})
+
+    async def set_window_orientation(self, value: str) -> None:
+        if value in WINDOW_ORIENTATION_OPTIONS:
+            await self._persist({OPT_WINDOW_ORIENTATION: value})
+
+    async def set_distance_to_window_m(self, value: float) -> None:
+        await self._persist({OPT_DISTANCE_TO_WINDOW_M: float(value)})
+
+    async def set_light_position(self, value: str) -> None:
+        if value in LIGHT_POSITION_OPTIONS:
+            await self._persist({OPT_LIGHT_POSITION: value})
+
+    async def set_pot_material(self, value: str) -> None:
+        if value in POT_MATERIAL_OPTIONS:
+            await self._persist({OPT_POT_MATERIAL: value})
+
+    async def set_pot_diameter_cm(self, value: float) -> None:
+        await self._persist({OPT_POT_DIAMETER_CM: float(value)})
+
+    async def set_soil_retention(self, value: str) -> None:
+        if value in SOIL_RETENTION_OPTIONS:
+            await self._persist({OPT_SOIL_RETENTION: value})
+
+    async def set_drainage_quality(self, value: str) -> None:
+        if value in DRAINAGE_QUALITY_OPTIONS:
+            await self._persist({OPT_DRAINAGE_QUALITY: value})
 
     # ── Watering ─────────────────────────────────────────────────────────────────
 

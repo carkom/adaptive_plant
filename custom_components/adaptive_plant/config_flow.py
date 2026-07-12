@@ -21,8 +21,23 @@ from .const import (
     CONF_DRY_THRESHOLD,
     CONF_EARLY_WATERING_THRESHOLD,
     CONF_ENABLE_CARE_INSTRUCTIONS,
+    CONF_ENABLE_ENVIRONMENT_CONTEXT,
     CONF_ENABLE_FERTILIZATION,
     CONF_ENABLE_IMAGE,
+    DRAINAGE_QUALITY_OPTIONS,
+    LIGHT_POSITION_OPTIONS,
+    OPT_BASELINE_WATERING_INTERVAL,
+    OPT_DISTANCE_TO_WINDOW_M,
+    OPT_DRAINAGE_QUALITY,
+    OPT_LIGHT_POSITION,
+    OPT_POT_DIAMETER_CM,
+    OPT_POT_MATERIAL,
+    OPT_SOIL_RETENTION,
+    OPT_WINDOW_ORIENTATION,
+    POT_MATERIAL_OPTIONS,
+    SOIL_RETENTION_OPTIONS,
+    WINDOW_ORIENTATION_OPTIONS,
+    label_environment_options,
     CONF_ENABLE_LATIN_NAME,
     CONF_ENABLE_NOTES,
     CONF_ENABLE_REPOTTING,
@@ -118,8 +133,63 @@ def _features_schema(defaults: dict) -> vol.Schema:
         vol.Required(CONF_ENABLE_LATIN_NAME, default=defaults.get(CONF_ENABLE_LATIN_NAME, False)): selector.selector({"boolean": {}}),
         vol.Required(CONF_ENABLE_IMAGE, default=defaults.get(CONF_ENABLE_IMAGE, False)): selector.selector({"boolean": {}}),
         vol.Required(CONF_ENABLE_REPOTTING, default=defaults.get(CONF_ENABLE_REPOTTING, False)): selector.selector({"boolean": {}}),
+        vol.Required(CONF_ENABLE_ENVIRONMENT_CONTEXT, default=defaults.get(CONF_ENABLE_ENVIRONMENT_CONTEXT, False)): selector.selector({"boolean": {}}),
         vol.Optional(CONF_MOISTURE_SENSOR): selector.selector(
             {"entity": {"domain": "sensor", "multiple": False}}
+        ),
+    })
+
+
+
+def _environment_schema(defaults: dict) -> vol.Schema:
+    return vol.Schema({
+        vol.Required(
+            OPT_BASELINE_WATERING_INTERVAL,
+            default=defaults.get(OPT_BASELINE_WATERING_INTERVAL, defaults.get(OPT_WATERING_INTERVAL, DEFAULT_WATERING_INTERVAL)),
+        ): selector.selector(
+            {"number": {"min": 1, "max": 365, "mode": "box", "unit_of_measurement": "days"}}
+        ),
+        vol.Required(
+            OPT_WINDOW_ORIENTATION,
+            default=defaults.get(OPT_WINDOW_ORIENTATION, "unknown"),
+        ): selector.selector(
+            {"select": {"options": label_environment_options(WINDOW_ORIENTATION_OPTIONS), "mode": "dropdown"}}
+        ),
+        vol.Required(
+            OPT_DISTANCE_TO_WINDOW_M,
+            default=defaults.get(OPT_DISTANCE_TO_WINDOW_M, 2.0),
+        ): selector.selector(
+            {"number": {"min": 0, "max": 10, "step": 0.1, "mode": "box", "unit_of_measurement": "m"}}
+        ),
+        vol.Required(
+            OPT_LIGHT_POSITION,
+            default=defaults.get(OPT_LIGHT_POSITION, "unknown"),
+        ): selector.selector(
+            {"select": {"options": label_environment_options(LIGHT_POSITION_OPTIONS), "mode": "dropdown"}}
+        ),
+        vol.Required(
+            OPT_POT_MATERIAL,
+            default=defaults.get(OPT_POT_MATERIAL, "unknown"),
+        ): selector.selector(
+            {"select": {"options": label_environment_options(POT_MATERIAL_OPTIONS), "mode": "dropdown"}}
+        ),
+        vol.Required(
+            OPT_POT_DIAMETER_CM,
+            default=defaults.get(OPT_POT_DIAMETER_CM, 15.0),
+        ): selector.selector(
+            {"number": {"min": 1, "max": 100, "step": 1, "mode": "box", "unit_of_measurement": "cm"}}
+        ),
+        vol.Required(
+            OPT_SOIL_RETENTION,
+            default=defaults.get(OPT_SOIL_RETENTION, "standard"),
+        ): selector.selector(
+            {"select": {"options": label_environment_options(SOIL_RETENTION_OPTIONS), "mode": "dropdown"}}
+        ),
+        vol.Required(
+            OPT_DRAINAGE_QUALITY,
+            default=defaults.get(OPT_DRAINAGE_QUALITY, "good"),
+        ): selector.selector(
+            {"select": {"options": label_environment_options(DRAINAGE_QUALITY_OPTIONS), "mode": "dropdown"}}
         ),
     })
 
@@ -393,6 +463,17 @@ class AdaptivePlantConfigFlow(ConfigFlow, domain=DOMAIN):
         d[CONF_ENABLE_LATIN_NAME] = src.enable_latin_name
         d[CONF_ENABLE_REPOTTING] = src.enable_repotting
         d[CONF_ENABLE_IMAGE] = src.enable_image
+        d[CONF_ENABLE_ENVIRONMENT_CONTEXT] = src.enable_environment_context
+
+        if src.enable_environment_context:
+            d[OPT_BASELINE_WATERING_INTERVAL] = src.baseline_watering_interval
+            d[OPT_WINDOW_ORIENTATION] = src.window_orientation
+            d[OPT_DISTANCE_TO_WINDOW_M] = src.distance_to_window_m
+            d[OPT_LIGHT_POSITION] = src.light_position
+            d[OPT_POT_MATERIAL] = src.pot_material
+            d[OPT_POT_DIAMETER_CM] = src.pot_diameter_cm
+            d[OPT_SOIL_RETENTION] = src.soil_retention
+            d[OPT_DRAINAGE_QUALITY] = src.drainage_quality
 
         if src.enable_fertilization:
             d[OPT_FERTILIZATION_INTERVAL] = src.fertilization_interval
@@ -428,6 +509,18 @@ class AdaptivePlantConfigFlow(ConfigFlow, domain=DOMAIN):
                     self._data[k] = v
             return await self.async_step_last_watered()
         return self.async_show_form(step_id="features", data_schema=_features_schema(self._data))
+
+    async def async_step_environment(self, user_input: dict | None = None) -> FlowResult:
+        if user_input is not None:
+            for k, v in user_input.items():
+                if v not in (None, ""):
+                    self._data[k] = v
+            return self._create_entry()
+
+        return self.async_show_form(
+            step_id="environment",
+            data_schema=_environment_schema(self._data),
+        )
 
     async def async_step_last_watered(self, user_input: dict | None = None) -> FlowResult:
         if user_input is not None:
@@ -644,6 +737,15 @@ class AdaptivePlantConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="moisture", data_schema=_moisture_schema(self._data), errors=errors)
 
     def _create_entry(self) -> FlowResult:
+        if (
+            self._data.get(CONF_ENABLE_ENVIRONMENT_CONTEXT)
+            and OPT_BASELINE_WATERING_INTERVAL not in self._data
+        ):
+            return self.async_show_form(
+                step_id="environment",
+                data_schema=_environment_schema(self._data),
+            )
+
         if self._duplicating and self._dup_options:
             return self.async_create_entry(
                 title=self._data[CONF_PLANT_NAME], data=self._data, options=self._dup_options

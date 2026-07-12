@@ -30,6 +30,9 @@ async def async_setup_entry(
         CurrentMoistureSensor(plant, entry),
     ]
 
+    if plant.enable_environment_context:
+        entities.append(RecommendedWateringIntervalSensor(plant, entry))
+
     if plant.enable_fertilization:
         entities.extend([
             LastFertilizedSensor(plant, entry),
@@ -149,6 +152,38 @@ class DaysUntilWateringSensor(PlantSensorBase):
         if days == 1:
             return "In 1 Day"
         return f"In {days} Days"
+
+
+class RecommendedWateringIntervalSensor(PlantSensorBase):
+    """Recommended watering interval based on plant metadata and seasonal factors."""
+
+    _attr_name = "Recommended watering interval"
+    _attr_translation_key = "recommended_watering_interval_days"
+    _attr_icon = "mdi:calendar-search"
+    _attr_native_unit_of_measurement = "days"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, plant: PlantData, entry: ConfigEntry) -> None:
+        super().__init__(plant, entry)
+        self._attr_unique_id = f"{entry.entry_id}_recommended_watering_interval_days"
+
+    @property
+    def native_value(self) -> int:
+        return self._plant.recommended_watering_interval_days
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {
+            "baseline_watering_interval": self._plant.baseline_watering_interval,
+            "factors": self._plant.recommendation_factors,
+            "window_orientation": self._plant.window_orientation,
+            "distance_to_window_m": self._plant.distance_to_window_m,
+            "light_position": self._plant.light_position,
+            "pot_material": self._plant.pot_material,
+            "pot_diameter_cm": self._plant.pot_diameter_cm,
+            "soil_retention": self._plant.soil_retention,
+            "drainage_quality": self._plant.drainage_quality,
+        }
 
 
 class EarlyWateringCountSensor(PlantSensorBase):
